@@ -38,7 +38,15 @@
 
 <!-- The path a submission takes, from arriving to the label a reader sees.
      Six or seven steps — this is the trace you wrote in Milestone 1. -->
-
+Following are the steps what might happens when calling the Post request on teh /submit endpoint and receive the response. 
+1. /submit is the POST endpoint in the app.py which receive the {"text", "creator_id"}, rejects the bad input for example empty text, missing fields and gives the submission a content_id. If the bad input our api should return the 400 bad request status code. 
+2. If input are good it calcualtes the two score namely model_signal and style_signal for the given text. 
+3. It will utilize model_signal in detector.py. It runs GPT-2 on the text and adds a model_score from 0 to 1 based on how predicatable the text is. 
+4. It will calculate style_score using stylometry.py and adds the style_score form 0 to 1 based on how the text is built evaluating text length variation, word composition and punctuation. 
+5. Then it will call generate the combine_signals using the scoring.py, which merges the two scores into one confidence score.
+6. Then that score is used to get the score_to_label using scoring.py which compares that score to the thresholds in config.py and adds a guess plus one of three labels(human, unsure, AI)
+7. After getting the scores, score_to_label it will writes the decision to the log so there's a record if someone appeals using audit.log_decision in audit.py.
+8. Finally, server will send the response to the reader with json object which includes content_id, guess, confidence, label, model_score, style_score. 
 
 
 ---
@@ -54,18 +62,40 @@
 ### Signal one — the model signal
 
 **What it measures:**
+It measures how predictable the given text is to a small language model in our case GPT-2. This mesurement called perplxity and it turns it into a score from 0 and 1. Higher score means more likely AI. 
 
 **Why that might differ between human and AI writing:**
+AI picks a likely next word at each step, so its output is easy for a model to predict. Where as humans make odder, more specific choices. 
 
 **What it can't see:**
+It can't see wheather the text was actually written by a machine. It only sees whether it reads as predictable. As mention in the detector.py,  plain writing (second-language writers, younger writers, simple style) scores as AI-like. Ornate writing full of rare words scores as human even if an AI wrote it. 
 
 ### Signal two — the style signal
 
 **What it measures:**
+It measures the shape of the text, not its meaning. Which means how much sentence length varies, how varied the vocabulary is, and how much punctuation there is.
 
 **Why that might differ between human and AI writing:**
+AI writing tends toward even, mid length sentences and a narrower vocabulary. Human writing is lumpier, with a three word sentence next to a forty word one.
 
 **What it can't see:**
+It can't see what actual text say. Anything that changes the shape without changing the content moves the score for example adding typos, chopping up sentences, pasting in a quote. All of that is cheap to do on purpose. Also word variety drops as a text gets longer, so length alone can push the score.
+
+**Two endpoints and the contracts
+1. POST /submit
+request inputs 
+     text: string and its required. 
+     creator_id: string and its required. 
+response: 
+if everything is good response with status code 200. It will return back json object iwth contient_id, guess, confidence, label, model_score, styple_score, status. 
+If error depending one what caused the error it will send the error message and approprate error code.
+2. POST /appeal
+request inputs: 
+     content_id: string, required
+     reasoning: string, required
+response:
+if everything is good response with status code 200 and return object will have content_id, message. If error depending one what caused the error it will send the error message and approprate error code.
+
 
 ### The combining rule
 
