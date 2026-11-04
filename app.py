@@ -30,6 +30,9 @@ from flask import Flask, jsonify, request
 
 import audit
 import config
+import detector
+import stylometry
+import scoring
 
 app = Flask(__name__)
 
@@ -150,6 +153,11 @@ def health():
 
 # ── YOU BUILD THIS ────────────────────────────────────────────────────────────
 
+def _reject_request(creator_id, message, error="invalid_input", status=400):
+    audit.log_rejection(str(creator_id), error, message=message)
+    return jsonify({"error": error, "message": message}), status
+
+
 @app.post("/submit")
 # @limiter.limit(f"{config.RATE_LIMIT_PER_MINUTE}/minute;{config.RATE_LIMIT_PER_DAY}/day")
 def submit():
@@ -199,17 +207,29 @@ def submit():
     what should this do when `text` is missing, empty, or enormous? A crash on
     a malformed input is one of the most common real failures there is.
     """
-    payload = request.get_json(silent=True) or {}
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return _reject_request(None, "body must be a valid JSON object")
 
-    # TODO: delete this and build the route.
+    text = payload.get("text")
+    creator_id = payload.get("creator_id")
+    if not isinstance(creator_id, str) or not creator_id.strip():
+            return _reject_request(creator_id, "creator_id is str required field")
+    if not isinstance(text, str) or not text.strip():
+        return _reject_request(creator_id, "text is required, and it must be a non empty string")
+
+    content_id = str(uuid.uuid4())
     return jsonify({
-        "error": "not_implemented",
-        "message": "POST /submit isn't built yet — see the TODO in app.py.",
-        "you_sent": {
-            "text_length": len(payload.get("text", "")),
-            "creator_id": payload.get("creator_id"),
-        },
-    }), 501
+        "content_id": content_id,
+        "guess": "unsure",
+        "confidence": 0.5,
+        "label": "placeholder",
+        "model_score": 0.0,
+        "style_score": 0.0,
+        "status": "decided",
+    })
+    
+    
 
 
 @app.post("/appeal")
