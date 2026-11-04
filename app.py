@@ -219,18 +219,32 @@ def submit():
         return _reject_request(creator_id, "text is required, and it must be a non empty string")
 
     content_id = str(uuid.uuid4())
+
+    try: 
+        model_score = detector.model_signal(text)
+    except detector.DetectorUnavailable as e:
+        audit.log_rejection(creator_id,"Detector is unavailable")
+        return jsonify({"error": "Detector is unavailable", "message":str(e)}), 503
+
+    style_score = stylometry.style_signal(text)
+    confidence = scoring.combine_signals(model_score, style_score)
+    guess, label = scoring.score_to_label(confidence)
+    audit.log_decision(
+        content_id=content_id, creator_id=creator_id, guess=guess,
+        model_score=model_score, style_score=style_score,
+        combined_score=confidence, label=label,
+    )
+
     return jsonify({
         "content_id": content_id,
-        "guess": "unsure",
-        "confidence": 0.5,
-        "label": "placeholder",
-        "model_score": 0.0,
-        "style_score": 0.0,
+        "guess": guess,
+        "confidence": round(confidence, 3),
+        "label": label,
+        "model_score": round(model_score, 3),
+        "style_score": round(style_score, 3),
         "status": "decided",
     })
     
-    
-
 
 @app.post("/appeal")
 def appeal():
