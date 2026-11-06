@@ -47,6 +47,14 @@ def words(text: str) -> list[str]:
 
 # ── The three measures — YOU BUILD THESE ─────────────────────────────────────
 
+TTR_WINDOW = 50
+
+# (AI-like value, human-like value) for each measure. Starting guesses —
+# recalibrate against the Milestone 4 calibration inputs.
+SPREAD_ANCHORS = (0.25, 0.65)
+TTR_ANCHORS = (0.70, 0.85)
+PUNCT_ANCHORS = (0.06, 0.16)
+
 def sentence_length_spread(text: str) -> float:
     """
     How much sentence length varies. ← TODO
@@ -63,9 +71,18 @@ def sentence_length_spread(text: str) -> float:
     Watch the edge case: a one-sentence submission has no spread at all, and
     `stdev` raises on fewer than two values. Decide what that should return
     before the attack set decides for you.
+
+    Using the stddev and mean calcualting the coefficient of variation of words per sentence.
+    Roughly 0.0–1.0+; higher means more varied, which reads as more human.
+    Fewer than two sentences returns 0.0 there's no spread to measure, and
+    `style_signal` treats that case as "no evidence" rather than as AI.
     """
-    # TODO: replace this
-    return 0.0
+    lengths = [len(words(s)) for s in sentences(text)]
+    lengths = [n for n in lengths if n > 0]
+    if len(lengths) < 2:
+        return 0.0
+    mean = statistics.mean(lengths)
+    return statistics.stdev(lengths) / mean
 
 
 def type_token_ratio(text: str) -> float:
@@ -79,9 +96,20 @@ def type_token_ratio(text: str) -> float:
     longer, because common words repeat. Two texts of different lengths aren't
     directly comparable on it, and if your test inputs vary a lot in length,
     that alone can look like a signal.
+
+    To stop length from driving it, this is a moving average, the plain ratio inside every 50 word window, averaged. Texts shorter than
+    one window fall back to the plain ratio. Empty text returns 0.0.
     """
-    # TODO: replace this
-    return 0.0
+    tokens = words(text)
+    if not tokens:
+        return 0.0
+    if len(tokens) <= TTR_WINDOW:
+        return len(set(tokens)) / len(tokens)
+    ratios = [
+        len(set(tokens[i:i + TTR_WINDOW])) / TTR_WINDOW
+        for i in range(len(tokens) - TTR_WINDOW + 1)
+    ]
+    return statistics.mean(ratios)
 
 
 def punctuation_density(text: str) -> float:
@@ -93,9 +121,17 @@ def punctuation_density(text: str) -> float:
         semicolons, dashes — is a real choice. Semicolons and em dashes are
         more interesting than full stops, because they vary more between
         writers.
+
+    Commas, semicolons, colons, dashes, parentheses, and ! / ? per
+    word. Full stops are left out; every sentence has one, so they mostly
+    measure sentence length again. Roughly 0.0–0.3; higher reads as more
+    human. Empty text returns 0.0.
     """
-    # TODO: replace this
-    return 0.0
+    tokens = words(text)
+    if not tokens:
+        return 0.0
+    marks = re.findall(r"[,;:()!?\u2014\u2013]|(?<=\s)-(?=\s)|--", text)
+    return len(marks) / len(tokens)
 
 
 # ── Combining them ───────────────────────────────────────────────────────────
@@ -121,9 +157,34 @@ def style_signal(text: str) -> float:
     clearly human, plain conventional human writing, lightly-edited AI — before
     you trust it. Plain and ordinary, not formal: formal prose reads as *human*
     to signal one, and it is plain writing that gets accused.
+
+    Choices:
+      - All three measures point the same way higher raw value reads as
+        more human so all three get flipped.
+      - Each is scaled with `_scale` between an "AI-like" and a "human-like"
+        anchor (below), then clamped to 0–1.
+      - Weights: spread 0.5, vocabulary 0.25, punctuation 0.25. Spread gets
+        the most because it's the measure the AI/human difference is clearest
+        on; punctuation habits vary most between individual people.
+      - Under two sentences, spread is unknown, so it counts as 0.5.
     """
-    # TODO: replace this
-    return 0.5
+    if not words(text):
+        return 0.5
+
+    if len(sentences(text)) < 2:
+        spread_ai = 0.5
+    else:
+        spread_ai = _scale(sentence_length_spread(text), *SPREAD_ANCHORS)
+    ttr_ai = _scale(type_token_ratio(text), *TTR_ANCHORS)
+    punct_ai = _scale(punctuation_density(text), *PUNCT_ANCHORS)
+
+    return 0.5 * spread_ai + 0.25 * ttr_ai + 0.25 * punct_ai
+
+
+def _scale(value: float, ai_like: float, human_like: float) -> float:
+    """0.0 at or past `human_like`, 1.0 at or past `ai_like`, linear between."""
+    position = (value - human_like) / (ai_like - human_like)
+    return min(1.0, max(0.0, position))
 
 
 if __name__ == "__main__":
