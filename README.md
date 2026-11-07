@@ -249,24 +249,64 @@ $ curl "http://127.0.0.1:5000/log?limit=2"
 
 ## Rate Limiting
 
-**My limits:** ___ per minute, ___ per day
+**My limits:** 5 per minute, 100 per day
 
 **Why those numbers and not others:**
 <!-- Think about two people: a real writer submitting their own work a few
      times an hour, and a script sending a thousand variations to map your
      thresholds. Your numbers have to be liveable for the first and hostile to
      the second. -->
+A real writer submits their own piece a handful of times an hour — paste, read the verdict, revise, resubmit. That's well under 5 in any single minute, and even a heavy day of editing rarely gets near 100, so neither limit ever touches them. A script probing my thresholds needs hundreds or thousands of
+variations to map where the score flips. 
 
 **What a caller counts as:** <!-- per address, or per creator_id? They fail
 differently — one script can look like a thousand callers, and one household
 can look like one. -->
+Per creator_id, falling back to per address. rate_limit_key() in app.py
+uses the request's creator_id when the body is a JSON object with a
+non-empty creator_id string; otherwise it uses the caller's IP. 
+
+The two keys fail in opposite directions. creator_id is chosen by the
+caller, so a script can send a fresh id on every request and look like a
+thousand different callers the limit never bites. IP is harder to fake, but
+everyone behind one router (a household, a classroom, an office) shares an
+address and looks like one caller, so they'd eat each other's 5/minute.
+My setup inherits the creator_id weakness: sending any id skips the IP limit
+entirely. The fix would be to apply both a per creator limit and a per-IP
+limit so rotating ids still runs into the address cap.
 
 **The run of status codes when I pushed past it:**
 
 <!-- python run_attacks.py --flood 15 -->
 
 ```
+15 submissions as 'flood_tester' against http://127.0.0.1:5000
+The first one is slow while the model loads.
 
+  [ 1/15] 200
+  [ 2/15] 200
+  [ 3/15] 200
+  [ 4/15] 200
+  [ 5/15] 200
+  [ 6/15] 429
+  [ 7/15] 429
+  [ 8/15] 429
+  [ 9/15] 429
+  [10/15] 429
+  [11/15] 429
+  [12/15] 429
+  [13/15] 429
+  [14/15] 429
+  [15/15] 429
+
+============================================================
+200 200 200 200 200 429 429 429 429 429 429 429 429 429 429
+============================================================
+
+10 of 15 were rate limited. Paste the run above into your README
+under **Rate Limiting**, and check GET /log recorded the rejections.
+
+Wrote results/flood_2026-11-06_1823.md
 ```
 
 ---
