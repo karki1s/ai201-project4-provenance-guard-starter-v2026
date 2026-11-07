@@ -59,6 +59,8 @@ Following are the steps what might happens when calling the Post request on teh 
      The blind spot is not optional. If you can't name it you don't understand
      the signal yet — and unit 8's attack set is built out of blind spots. -->
 
+Signals and Scoring is in scoring.py::combine_signals
+
 ### Signal one — the model signal
 
 **What it measures:**
@@ -230,7 +232,9 @@ $ curl "http://127.0.0.1:5000/log?limit=2"
 **Moment 1**
 
 - *What I asked for:*
+ Asked to give the overall summary of the repo, verify my understanding, double check my implementation
 - *What came back:*
+- It help me clearify my usndrtsnding and also reword some of my answer.
 - *What I changed:*
 
 **Moment 2**
