@@ -76,6 +76,7 @@ It can't see wheather the text was actually written by a machine. It only sees w
 
 **What it measures:**
 It measures the shape of the text, not its meaning. Which means how much sentence length varies, how varied the vocabulary is, and how much punctuation there is.
+(Unit 8: punctuation is still computed but now weighted 0. See The Improvement.)
 
 **Why that might differ between human and AI writing:**
 AI writing tends toward even, mid length sentences and a narrower vocabulary. Human writing is lumpier, with a three word sentence next to a forty word one.
@@ -368,8 +369,8 @@ Source: `results/run_2026-11-13_0910_before.md`, produced by `run_eval.py::main`
 | 1. False positives on my own writing | At most 1 of 10 comes back `ai` | 5 of 10 `ai` | 5 of 10 `ai` | 5 of 10 `ai` | MISSED |
 | 2. AI and human score far apart | AI mean − human mean ≥ 0.30 | 0.764 − 0.419 = 0.345 | 0.345 | 0.345 | MET |
 | 3. Every label reachable | Each of `human` / `unsure` / `ai` at least 2 times | 2 / 5 / 7 | 2 / 5 / 7 | 2 / 5 / 7 | MET (barely) |
-| 4. Appeals change status and get recorded | 5 real appeals → 200 `under_review` + `/log` entry; 3 fake IDs → 404, no entry | 5/5 · 3/3 | 5/5 · 3/3 | 5/5 · 3/3 | MET |
-| 5. Bad input refused cleanly | 5 malformed → 4xx with `"error"`, one `rejected` entry each | 5/5 400 · 5 entries | 5/5 400 · 5 entries | 5/5 400 · 5 entries | MET |
+| 4. Appeals change status and get recorded | 5 real appeals to 200 `under_review` + `/log` entry; 3 fake IDs to 404, no entry | 5/5 · 3/3 | 5/5 · 3/3 | 5/5 · 3/3 | MET |
+| 5. Bad input refused cleanly | 5 malformed to 4xx with `"error"`, one `rejected` entry each | 5/5 400 · 5 entries | 5/5 400 · 5 entries | 5/5 400 · 5 entries | MET |
 
 
 **Real output from one trial**, pasted as text, naming the file and function
@@ -572,20 +573,60 @@ criteria 1–3 say each piece is 100–300 words, but 17 of my 19 human pieces a
 
 **What I changed:**
 
+Signal two's weights in `stylometry.py::style_signal`: punctuation went from 0.25 to 0, and spread from 0.5 to 0.75. Vocabulary stays at 0.25. Nothing else changed; same anchors, same 0.6 / 0.4 combining rule, same
+thresholds.
+
 **Which diagnosis pointed at it:**
+
+Problem 1. Punctuation's AI anchor is 0.06 marks per word, and plain human writing sits at 0.00–0.05, so the measure read fully AI on all 10 of my own pieces and all six false-positive attacks. It never pointed at anything but my writing style. I'd already seen this in Milestone 4 (the split case above: "low punctuation shouldn't count as AI-like"). The chatbot text I tested actually had more punctuation (0.09–0.11) than my writing.
+
+
+| Option | My writing ai | FP rows ai | AI set caught | Evasions caught | AI − human gap |
+|---|---|---|---|---|---|
+| Before | 5 | 6 | 5/5 | 2 | 0.344 |
+| Model weight 0.6 - 0.4 | 4 | 6 | 5/5 | 2 | 0.260 |
+| AI threshold 0.65 - 0.75 | 2 | 5 | 4/5 | 1 | 0.344 |
+| Drop punctuation (chosen) | 3 | 4 | 5/5 | 2 | 0.421 |
+
 
 ### Attack Run — After
 
 <!-- Same format. `run_attacks.py --label after` -->
 
+56 attacks: 37 held, 17 broke, 2 not tested (before: 35 / 19 / 2).
 
+| Family | Attacks | Held | Broke | Not tested | Change |
+|---|---|---|---|---|---|
+| evasion | 10 | 2 | 8 | 0 | — |
+| false_positive | 8 | 4 | 4 | 0 | FP06, FP07 now held |
+| prompt_injection | 6 | 3 | 3 | 0 | — |
+| malformed (MF) | 8 | 6 | 2 | 0 | — |
+| malformed (RQ) | 12 | 10 | 0 | 2 | — |
+| flood_same_creator | 12 | 12 | 0 | 0 | — |
+
+Rows whose verdict changed:
+
+| ID | Before | After | Style score |
+|---|---|---|---|
+| FP06 (formal template) | `ai` 0.757 · BROKE | `unsure` 0.595 · HELD | 0.57 to 0.40 |
+| FP07 (deliberate repetition) | `ai` 0.729 · BROKE | `unsure` 0.564 · HELD | 0.50 to 0.25 |
+
+Criteria after the change (`results/run_2026-11-13_1638_after.md`,
+`run_eval.py::main`; criterion 4 by the same appeal script as before):
+
+| Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict | Before |
+|---|---|---|---|---|---|---|
+| 1. False positives on my writing | At most 1 of 10 `ai` | 3 of 10 | 3 of 10 | 3 of 10 | MISSED | 5 of 10 |
+| 2. AI and human far apart | Gap ≥ 0.30 | 0.801 − 0.381 = 0.420 | 0.420 | 0.420 | MET | 0.345 |
+| 3. Every label reachable | Each ≥ 2 | 3 / 4 / 7 | 3 / 4 / 7 | 3 / 4 / 7 | MET | 2 / 5 / 7 |
+| 4. Appeals | 5/5 recorded, 3/3 fake to 404 | 5/5 · 3/3 | 5/5 · 3/3 | 5/5 · 3/3 | MET | same |
+| 5. Bad input | 5/5 to 4xx + logged | 5/5 | 5/5 | 5/5 | MET | same |
 
 **Did it help, and how do I know:**
 
-<!-- Widening the unsure band usually fixes one problem and creates another.
-     Reporting that trade honestly is worth full credit. -->
+Yes, for the problem it targeted. Real human writing called `ai` dropped from 5 of 10 to 3 of 10 on my own pieces, and from 6 to 4 on the false-positive attacks. The AI set is still caught 5 of 5, and the gap between AI and human grew from 0.345 to 0.420. Criterion 3 got a safer margin (`human` 2 to 3). The real run matched what the offline recalculation predicted (3 and 4), so the improvement comes from the change, not from noise. All three trials were identical.
 
-
+The cost spread is now 75% of signal two, so the cheapest evasion, varying sentence length, works better. Signal two now reads **0.0** on EV02, EV05, EV06, PI01 and PI02 (before: about 0.25). No evasion verdict flipped, because they were already landing in `unsure`, but the AI-text scores moved further from the `ai` line: EV09 0.614 to 0.559, EV03 0.603 to 0.555, EV10 0.916 to 0.880. MF08 (60,000 characters) dropped from 0.848 to 0.652, just above the line. 
 
 ---
 
@@ -594,13 +635,39 @@ criteria 1–3 say each piece is 100–300 words, but 17 of my 19 human pieces a
 <!-- For each attack still getting through and each criterion still missed:
      what you'd do, and why you stopped. -->
 
+**Criterion 1, still MISSED (3 of 10), and FP02–FP05 (4 attacks): signal one.**
+The pieces still flagged are my protein-structure abstract (0.66), my Big Data paragraph (0.81) and my thank-you email (0.854). Their model scores are 0.60, 0.78 and 0.92. Signal two was no longer the cause; GPT-2 alone puts them over the line because academic prose and stock email phrases are very predictable. FP02–FP05 (formal report, non-native writer, rubric essay, docs) are the same mechanism. *What I'd do:* recalibrate the model signal's perplexity midpoint (45) on a larger set of real human writing, including non-native and formal writing, or have signal one count less when the text is short. 
 
+**EV01–03, EV06–09, PI01, PI03 (9 attacks): `unsure` lets AI text through.**
+*What I'd do:* stop publishing `unsure` as if nothing happened, and send it to
+the same human review queue an appeal goes to. For EV09 (a human paragraph
+bolted onto AI text), score each paragraph and flag a mix. *Why I stopped:*
+that's a product policy change, not a scoring fix, and with the current false
+positive rate it would also hold back real writers. 4 of my own 10 pieces land
+in `unsure`.
+
+**MF02 (500 crash) and MF03 (control characters to `human`): the route.**
+*What I'd do:* in `app.py::submit`, catch the detector's `ValueError` and return
+a 400 with a logged rejection, and reject text with fewer than ~20 real words
+before either signal runs. *Why I stopped:* I kept to one change so the
+before/after comparison shows one cause. This is the cheapest fix left and the
+next one I'd make.
+
+**EV05 and PI02.** EV05 is a heavy human edit, and both signals reading it as
+human is arguably right. PI02 got through because the fake `SYSTEM:` text
+raises perplexity, not because anything obeyed it. Input validation wouldn't
+catch it. It's the same "fool signal one" problem as EV01.
 
 **The trade I'd make if this ran for real:**
 
 <!-- Two sentences. Fewer wrong accusations means more AI text getting through.
      Say which way you'd go and WHO PAYS FOR IT. -->
 
+I'd keep leaning toward fewer wrong accusations: give the `ai` label only at
+high confidence, and send `unsure` to a person instead of publishing it
+silently. The site, its readers and the reviewers pay for that, with more AI
+text getting published and a longer review queue, instead of a writer like
+FP03, who can't prove they wrote their own words.
 
 
 <!-- ═════════════════════════════════════════════════════════════════════

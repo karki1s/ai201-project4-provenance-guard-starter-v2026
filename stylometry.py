@@ -163,7 +163,7 @@ def style_signal(text: str) -> float:
         more human so all three get flipped.
       - Each is scaled with `_scale` between an "AI-like" and a "human-like"
         anchor (below), then clamped to 0–1.
-      - Weights: spread 0.5, vocabulary 0.25, punctuation 0.25. Spread gets
+      - Weights: spread 0.75, vocabulary 0.25, punctuation 0. Spread gets
         the most because it's the measure the AI/human difference is clearest
         on; punctuation habits vary most between individual people.
       - Under two sentences, spread is unknown, so it counts as 0.5.
@@ -178,7 +178,7 @@ def style_signal(text: str) -> float:
     ttr_ai = _scale(type_token_ratio(text), *TTR_ANCHORS)
     punct_ai = _scale(punctuation_density(text), *PUNCT_ANCHORS)
 
-    return 0.5 * spread_ai + 0.25 * ttr_ai + 0.25 * punct_ai
+    return 0.75 * spread_ai + 0.25 * ttr_ai + 0.0 * punct_ai
 
 
 def _scale(value: float, ai_like: float, human_like: float) -> float:
