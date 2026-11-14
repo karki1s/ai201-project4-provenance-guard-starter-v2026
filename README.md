@@ -241,9 +241,11 @@ $ curl "http://127.0.0.1:5000/log?limit=2"
 **Moment 2**
 
 - *What I asked for:*
+Asked the ai to clearify my understanding, ask to rewrite the digonosis and verify my criteria
 - *What came back:*
+It clearify it and give me better summary 
 - *What I changed:*
-
+Some of the suggestion I kept in my README.md
 <!-- ═══════════════════════ UNIT 8 — THE TEST ═══════════════════════ -->
 
 ---
