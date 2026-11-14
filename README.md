@@ -365,7 +365,7 @@ Source: `results/run_2026-11-13_0910_before.md`, produced by `run_eval.py::main`
 
 | Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict |
 |---|---|---|---|---|---|
-| 1. False positives on my own writing | At most 1 of 10 comes back `ai` | 5 of 10 `ai` | 5 of 10 `ai` | 5 of 10 `ai` | MISS |
+| 1. False positives on my own writing | At most 1 of 10 comes back `ai` | 5 of 10 `ai` | 5 of 10 `ai` | 5 of 10 `ai` | MISSED |
 | 2. AI and human score far apart | AI mean − human mean ≥ 0.30 | 0.764 − 0.419 = 0.345 | 0.345 | 0.345 | MET |
 | 3. Every label reachable | Each of `human` / `unsure` / `ai` at least 2 times | 2 / 5 / 7 | 2 / 5 / 7 | 2 / 5 / 7 | MET (barely) |
 | 4. Appeals change status and get recorded | 5 real appeals → 200 `under_review` + `/log` entry; 3 fake IDs → 404, no entry | 5/5 · 3/3 | 5/5 · 3/3 | 5/5 · 3/3 | MET |
@@ -489,7 +489,82 @@ by `run_eval.py::main` (each response comes from `app.py::submit`):
 
      Look for a pattern. Five failures on one signal is one problem, not five. -->
 
+Criteria: 1 **MISSED**, 2–5 **MET**. Attacks: 19 broke. They come down to three
+problems, plus two that stand alone.
 
+Reference: `combine = 0.6 × model + 0.4 × style`; if the two signals differ by
+more than 0.4, the score is pulled halfway to 0.5. `human` ≤ 0.35, `ai` ≥ 0.65.
+Style = 0.5 × spread + 0.25 × vocabulary (TTR) + 0.25 × punctuation, each scaled
+between an AI anchor and a human anchor in `stylometry.py`.
+
+**Problem 1: plain human writing is called AI. Criterion 1 (5 of 10) and FP02–FP07 (6 attacks).**
+
+- **Stage: signal one, with signal two agreeing.**
+- **Mechanism, signal one:** GPT-2 finds plain, conventional prose easy to predict.
+  My flagged pieces have perplexity around 10–37. The worst is piece 10, a thank-you
+  email made of stock phrases ("I hope you are…", "Thank you so much…"), at
+  perplexity ~10 and model score 0.916. Formal reports, templates, rubric essays
+  and documentation (FP02–FP06) are predictable for the same reason, and FP07's
+  deliberate repetition even more so. Model scores: 0.74–0.88 on the FP rows,
+  0.57–0.92 on my flagged pieces.
+- **Mechanism, signal two:** its punctuation anchors are wrong. The "human-like"
+  anchor is 0.16 marks per word, and anything at or below 0.06 scores as fully AI.
+  All 10 of my pieces (0.00–0.05) and all six FP rows (0.00–0.034) are at or below
+  0.06, so punctuation reads 1.0 (AI) on every one. My vocabulary anchor points
+  the wrong way too: the chatbot set has a *higher* TTR (0.86–0.89) than my writing
+  (0.70–0.81), so TTR also leans AI on my pieces.
+- **Why the combining rule doesn't save it:** both signals lean AI, so they
+  never differ by 0.4 and the disagreement rule never fires. The 0.6 weight on
+  the model signal then puts the score over 0.65.
+- **One problem, not eleven:** the system reads "plain and conventional" as "AI".
+  It hits non-native writers hardest (my own pieces, FP03) because careful
+  second-language writing is exactly that.
+
+**Problem 2: AI text lands in `unsure`, and `unsure` lets it through. EV01–03, EV06–09, PI01, PI03 (9 attacks).**
+
+- **Stage: the combining rule and the label mapping.** Each attack only has to
+  fool *one* signal:
+  - **EV01 and EV08 fool signal one.** Typos (EV01) and very short text (EV08,
+    10 words) make GPT-2 more surprised, so the model score drops to 0.16 and
+    0.25. Signal two still says AI (0.75 and 0.71), but the gap is over 0.4, so
+    the disagreement rule pulls the score to 0.45–0.47.
+  - **EV02, EV06, EV07 and PI01 fool signal two.** Broken-up sentences (EV02)
+    and one long plus one short sentence (EV06) push sentence-length spread past
+    the 0.65 human anchor. Spread carries half of signal two, so it drops to
+    ~0.25. EV07 is a single padded sentence: spread can't be measured, so it
+    counts as 0.5, and the extra commas set punctuation to fully human. PI01's
+    short, choppy instruction sentences do the same as EV02.
+  - **EV03, EV09 and PI03 sit just below the line** (0.60–0.61). A pasted
+    quotation or a human opening paragraph dilutes the whole-text average.
+    There's no per-section scoring, so a human paragraph bolted on (EV09)
+    drags the AI body down.
+- **Mechanism:** the disagreement rule sends any split to about 0.5, the unsure
+  band is 0.30 wide, and `score_to_label` gives `unsure` a label that says
+  "Nothing has been held back." Fooling either signal is enough to get published.
+- **Pattern:** the signals aren't the weak point here. The rule is: fooling
+  either signal counts as the two signals disagreeing, and disagreement passes
+  the text through.
+
+**Problem 3: the route trusts any string. MF02 and MF03 (2 attacks).**
+
+- **MF02, stage: the route.** For a single character, `detector.perplexity` raises
+  `ValueError("Text is too short to score")` when there are fewer than 3 tokens.
+  `app.py::submit` only catches `DetectorUnavailable`, so the `ValueError` escapes
+  as a 500 with the Werkzeug debug page. Nothing is written to the audit log.
+- **MF03, stage: the route, then the label mapping.** Control characters pass
+  the `text.strip()` check. GPT-2 scores them 0.0, and signal two finds no words
+  so it returns its 0.5 default. The gap of 0.5 fires the disagreement rule:
+  (0.2 + 0.5) / 2 = 0.35. That lands exactly on `HUMAN_THRESHOLD`, and `<=` makes
+  it `human`. The route never checks that the text contains any words.
+  
+
+**Standalone failures**
+
+EV05 human (0.29), stage: both signals.  A heavy human edit really does change the text sentence spread 0.68 and model score 0.32. Both signals read it correctly as mostly human-written. I count it as broke because the attack set does, but it's the hardest case for any detector, and arguably the right answer.
+
+PI02 human (0.22), stage: signal one.** No model obeyed the instruction; my detector doesn't follow instructions. The fake SYSTEM header and odd phrasing are unusual tokens for GPT-2, so perplexity rises and the model score drops to 0.20. Signal two agrees at 0.25 (short, varied sentences, high TTR). The injection worked through statistics, not by being obeyed.
+
+criteria 1–3 say each piece is 100–300 words, but 17 of my 19 human pieces and rewrites are shorter (31–98 words). Short text makes signal one less reliable (see EV08), so the criterion-1 result would be cleaner with full-length pieces. I'm recording this rather than dropping it.
 
 ---
 
